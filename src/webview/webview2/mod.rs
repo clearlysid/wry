@@ -6,8 +6,14 @@ mod file_drop;
 mod resize;
 
 use crate::{
+  application::{
+    event_loop::{ControlFlow, EventLoop},
+    platform::{run_return::EventLoopExtRunReturn, windows::WindowExtWindows},
+    window::Window,
+  },
   webview::{
-    proxy::ProxyConfig, PageLoadEvent, RequestAsyncResponder, WebContext, WebViewAttributes, RGBA,
+    proxy::ProxyConfig, PageLoadEvent, RequestAsyncResponder, ScreenshotRegion, WebContext,
+    WebViewAttributes, RGBA,
   },
   Error, Result,
 };
@@ -19,8 +25,10 @@ use std::{
   borrow::Cow,
   collections::HashSet,
   fmt::Write,
+  io::{Read, Seek, SeekFrom},
   iter::once,
   mem::MaybeUninit,
+  os::raw::c_void,
   os::windows::prelude::OsStrExt,
   path::PathBuf,
   rc::Rc,
@@ -51,7 +59,7 @@ use windows::{
 
 use webview2_com::{Microsoft::Web::WebView2::Win32::*, *};
 
-use crate::application::{platform::windows::WindowExtWindows, window::Window};
+// use crate::application::{platform::windows::WindowExtWindows, window::Window};
 use http::{Request, Response as HttpResponse, StatusCode};
 
 use super::Theme;
@@ -909,6 +917,35 @@ window.addEventListener('mousemove', (e) => window.chrome.webview.postMessage('_
 
   pub fn url(&self) -> Url {
     Url::parse(&url_from_webview(&self.webview)).unwrap()
+  }
+
+  pub fn screenshot<F>(&self, region: ScreenshotRegion, handler: F) -> Result<()>
+  where
+    F: Fn(Result<Vec<u8>>) -> () + 'static + Send,
+  {
+    if let Some(w) = self.webview.get() {
+      match region {
+        ScreenshotRegion::Visible => {
+          let mut stream = webview2::Stream::from_bytes(&[]);
+          w.capture_preview(
+            webview2::CapturePreviewImageFormat::PNG,
+            stream.clone(),
+            move |res| {
+              res?;
+              let mut bytes = Vec::new();
+              stream.seek(SeekFrom::Start(0)).unwrap();
+              match stream.read_to_end(&mut bytes) {
+                Ok(_) => handler(Ok(bytes)),
+                Err(err) => handler(Err(Error::Io(err))),
+              }
+              Ok(())
+            },
+          )?;
+        }
+        _ => todo!("{:?} screenshots for WebView2", region),
+      }
+    }
+    Ok(())
   }
 
   pub fn eval(
