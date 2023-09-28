@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
+use cairo::ImageSurface;
 use gdk::EventMask;
 use gio::Cancellable;
 use gtk::prelude::*;
+use std::convert::TryFrom;
 #[cfg(any(debug_assertions, feature = "devtools"))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
@@ -16,8 +18,10 @@ use std::{
 use url::Url;
 use webkit2gtk::{
   traits::*, AutoplayPolicy, LoadEvent, NavigationPolicyDecision, NetworkProxyMode,
-  NetworkProxySettings, PolicyDecisionType, SettingsExt, URIRequest, UserContentInjectedFrames,
-  UserScript, UserScriptInjectionTime, WebView, WebViewBuilder, WebsitePoliciesBuilder,
+  NetworkProxySettings, PolicyDecisionType, SettingsExt, SnapshotOptions, SnapshotRegion,
+  URIRequest, URISchemeRequestExt, UserContentInjectedFrames, UserContentInjectedFrames,
+  UserScript, UserScriptInjectionTime, UserScriptInjectionTime, WebView, WebViewBuilder,
+  WebsitePoliciesBuilder,
 };
 use webkit2gtk_sys::{
   webkit_get_major_version, webkit_get_micro_version, webkit_get_minor_version,
@@ -30,7 +34,7 @@ pub use web_context::WebContextImpl;
 use crate::{
   application::{platform::unix::*, window::Window},
   webview::{proxy::ProxyConfig, web_context::WebContext, PageLoadEvent, WebViewAttributes, RGBA},
-  Error, Result,
+  Error, Result, ScreenshotRegion,
 };
 
 mod file_drop;
@@ -362,6 +366,47 @@ impl InnerWebView {
     let uri = self.webview.uri().unwrap();
 
     Url::parse(uri.as_str()).unwrap()
+  }
+
+  pub fn screenshot<F>(&self, region: ScreenshotRegion, handler: F) -> Result<()>
+  where
+    F: Fn(Result<Vec<u8>>) -> () + 'static + Send,
+  {
+    let cancellable: Option<&Cancellable> = None;
+    let cb = move |result: std::result::Result<cairo::Surface, glib::Error>| match result {
+      Ok(surface) => match ImageSurface::try_from(surface) {
+        Ok(image) => {
+          let mut bytes = Vec::new();
+          match image.write_to_png(&mut bytes) {
+            Ok(_) => handler(Ok(bytes)),
+            Err(err) => handler(Err(Error::CairoIoError(err))),
+          }
+        }
+        Err(_) => handler(Err(Error::CairoError(cairo::Error::SurfaceTypeMismatch))),
+      },
+      Err(err) => handler(Err(Error::GlibError(err))),
+    };
+
+    match region {
+      ScreenshotRegion::FullDocument => {
+        self.webview.get_snapshot(
+          SnapshotRegion::FullDocument,
+          SnapshotOptions::NONE,
+          cancellable,
+          cb,
+        );
+      }
+      ScreenshotRegion::Visible => {
+        self.webview.get_snapshot(
+          SnapshotRegion::Visible,
+          SnapshotOptions::NONE,
+          cancellable,
+          cb,
+        );
+      }
+    };
+
+    Ok(())
   }
 
   pub fn eval(
