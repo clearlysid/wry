@@ -114,6 +114,24 @@ pub enum Error {
     target_os = "openbsd"
   ))]
   #[error(transparent)]
+  CairoError(#[from] cairo::Error),
+  #[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+  ))]
+  #[error(transparent)]
+  CairoIoError(#[from] cairo::IoError),
+  #[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+  ))]
+  #[error(transparent)]
   GlibError(#[from] glib::Error),
   #[cfg(any(
     target_os = "linux",
