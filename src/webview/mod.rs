@@ -1004,6 +1004,14 @@ impl WebView {
     Ok(())
   }
 
+  /// Take a screenshot
+  pub fn screenshot<F>(&self, region: ScreenshotRegion, handler: F) -> Result<()>
+  where
+    F: Fn(Result<Vec<u8>>) -> () + 'static + Send,
+  {
+    self.webview.screenshot(region, handler)
+  }
+
   /// Open the web inspector which is usually called dev tool.
   ///
   /// ## Platform-specific
@@ -1083,6 +1091,14 @@ impl WebView {
   pub fn clear_all_browsing_data(&self) -> Result<()> {
     self.webview.clear_all_browsing_data()
   }
+}
+
+/// Region type for Screenshotting
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum ScreenshotRegion {
+  Visible,
+  FullDocument,
 }
 
 /// An event enumeration sent to [`FileDropHandler`].
